@@ -96,15 +96,48 @@ export namespace MCP {
     })
   }
 
+  // Sanitize JSON Schema for compatibility with strict providers like Bedrock
+  // Removes unsupported properties and normalizes type arrays
+  function sanitizeSchema(obj: any): any {
+    if (obj === null || typeof obj !== "object") {
+      return obj
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(sanitizeSchema)
+    }
+
+    const result: any = {}
+    for (const [key, value] of Object.entries(obj)) {
+      // Convert array types like ["string", "null"] to just the first non-null type
+      if (key === "type" && Array.isArray(value)) {
+        const nonNullType = value.find((t) => t !== "null") || "string"
+        result[key] = nonNullType
+      } else if (key === "$schema" || key === "$id" || key === "$ref" || key === "$defs") {
+        // Skip JSON Schema meta properties that some providers don't support
+        continue
+      } else if (typeof value === "object" && value !== null) {
+        result[key] = sanitizeSchema(value)
+      } else {
+        result[key] = value
+      }
+    }
+
+    return result
+  }
+
   // Convert MCP tool definition to AI SDK Tool type
   async function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient): Promise<Tool> {
     const inputSchema = mcpTool.inputSchema
 
+    // Sanitize the schema first to remove unsupported properties
+    const sanitized = sanitizeSchema(inputSchema)
+
     // Spread first, then override type to ensure it's always "object"
     const schema: JSONSchema7 = {
-      ...(inputSchema as JSONSchema7),
+      ...sanitized,
       type: "object",
-      properties: (inputSchema.properties ?? {}) as JSONSchema7["properties"],
+      properties: (sanitized.properties ?? {}) as JSONSchema7["properties"],
       additionalProperties: false,
     }
     const config = await Config.get()

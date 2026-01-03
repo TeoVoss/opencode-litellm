@@ -7,6 +7,7 @@ import { Log } from "../util/log"
 import { BunProc } from "../bun"
 import { Plugin } from "../plugin"
 import { ModelsDev } from "./models"
+import { LiteLLM } from "./litellm"
 import { NamedError } from "@opencode-ai/util/error"
 import { Auth } from "../auth"
 import { Env } from "../env"
@@ -405,6 +406,17 @@ export namespace Provider {
         },
       }
     },
+    litellm: async () => {
+      return {
+        autoload: false,
+        options: {
+          headers: {
+            "HTTP-Referer": "https://opencode.ai/",
+            "X-Title": "opencode",
+          },
+        },
+      }
+    },
   }
 
   export const Model = z
@@ -607,6 +619,12 @@ export namespace Provider {
           providerID: "github-copilot-enterprise",
         })),
       }
+    }
+
+    // Add LiteLLM provider with dynamic model fetching
+    const litellmProvider = await LiteLLM.get()
+    if (litellmProvider) {
+      database["litellm"] = fromModelsDevProvider(litellmProvider as unknown as ModelsDev.Provider)
     }
 
     function mergeProvider(providerID: string, provider: Partial<Info>) {
