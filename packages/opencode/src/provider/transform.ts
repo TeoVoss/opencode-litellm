@@ -208,6 +208,11 @@ export namespace ProviderTransform {
       msgs = applyCaching(msgs, model.providerID)
     }
 
+    // Apply caching for litellm Claude models
+    if (model.providerID === "litellm" && (model.api.id.includes("claude") || model.api.id.includes("anthropic"))) {
+      msgs = applyCaching(msgs, "litellm")
+    }
+
     return msgs
   }
 
@@ -565,6 +570,48 @@ export namespace ProviderTransform {
       }
     }
     */
+
+    // Sanitize schema for LiteLLM Bedrock models
+    // Bedrock has strict schema requirements and doesn't accept array types like ["string", "null"]
+    const isBedrockModel =
+      model.providerID === "litellm" &&
+      (model.api.id.includes("anthropic.") || model.api.id.startsWith("anthropic."))
+    if (isBedrockModel) {
+      const sanitizeBedrock = (obj: any): any => {
+        if (obj === null || typeof obj !== "object") {
+          return obj
+        }
+
+        if (Array.isArray(obj)) {
+          return obj.map(sanitizeBedrock)
+        }
+
+        const result: any = {}
+        for (const [key, value] of Object.entries(obj)) {
+          if (key === "type" && Array.isArray(value)) {
+            // Convert array types like ["string", "null"] to just the first non-null type
+            const nonNullType = value.find((t) => t !== "null") || "string"
+            result[key] = nonNullType
+          } else if (key === "$schema" || key === "$id" || key === "$ref") {
+            // Skip JSON Schema meta properties that Bedrock doesn't support
+            continue
+          } else if (typeof value === "object" && value !== null) {
+            result[key] = sanitizeBedrock(value)
+          } else {
+            result[key] = value
+          }
+        }
+
+        // Ensure object type has properties
+        if (result.type === "object" && !result.properties) {
+          result.properties = {}
+        }
+
+        return result
+      }
+
+      schema = sanitizeBedrock(schema)
+    }
 
     // Convert integer enums to string enums for Google/Gemini
     if (model.providerID === "google" || model.api.id.includes("gemini")) {

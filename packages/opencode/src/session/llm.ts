@@ -3,6 +3,8 @@ import { Log } from "@/util/log"
 import {
   streamText,
   wrapLanguageModel,
+  tool,
+  jsonSchema,
   type ModelMessage,
   type StreamTextResult,
   type Tool,
@@ -123,6 +125,28 @@ export namespace LLM {
     )
 
     const tools = await resolveTools(input)
+
+    // Bedrock Claude models require at least one tool when tool_call is enabled
+    // Add a dummy tool if no tools are provided to avoid "tools param required" error
+    const isBedrock =
+      input.model.providerID === "litellm" &&
+      (input.model.api.id.includes("anthropic.") || input.model.api.id.startsWith("anthropic."))
+    if (isBedrock && Object.keys(tools).length === 0) {
+      tools["_noop"] = tool({
+        description: "A no-operation placeholder tool that does nothing. Do not call this tool.",
+        inputSchema: jsonSchema({
+          type: "object",
+          properties: {
+            _unused: {
+              type: "string",
+              description: "Unused parameter",
+            },
+          },
+          required: [],
+        }),
+        execute: async () => "noop",
+      })
+    }
 
     return streamText({
       onError(error) {
